@@ -134,10 +134,14 @@
 
   # KDE Connect turns a phone into the remote — Bigscreen has a first-class
   # indicator for it, and it's the least painful way to type on a TV.
-  programs.kdeconnect = {
-    enable = true;
-    package = pkgs.kdePackages.kdeconnect-kde;
-  };
+  #
+  # Do NOT set `package` here. The option defaults to the Qt5 build, which is
+  # why setting it looks necessary — but plasma6.nix already redefines it as
+  # kdePackages.kdeconnect-kde (the Qt6 one) whenever plasma6 is enabled, and
+  # that definition is not a mkDefault. Two definitions of the same option is a
+  # hard eval error even though both resolve to the identical derivation.
+  # If plasma6.enable is ever turned off, set the package again here.
+  programs.kdeconnect.enable = true;
 
   networking.firewall = {
     allowedTCPPortRanges = [ { from = 1714; to = 1764; } ];
