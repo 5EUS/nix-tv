@@ -375,7 +375,10 @@ ls -l /dev/disk/by-id/
 
 and put that in [disko.nix](disko.nix). Using by-id is also why the config
 doesn't care that the disk is in a USB enclosure now and in the board later —
-disko generates the `fileSystems` entries by UUID.
+disko generates the `fileSystems` entries by partlabel — names like
+`disk-main-root`, taken from the attribute names in [disko.nix](disko.nix)
+(disk `main` + partition `root`). Those labels are stored in the partition
+table, so they follow the disk between machines and enclosures.
 
 **Drop what doesn't apply.** `hardware.graphics.extraPackages` has
 `intel-media-driver` in it for VAAPI on Broadwell+ Intel iGPUs. If the board is
@@ -416,6 +419,71 @@ Already applied in [configuration.nix](configuration.nix). Only put `package`
 back if you ever disable plasma6, at which point you'd land on the Qt5 build
 again. The general escape hatch, if you hit this on some other option where you
 genuinely need your value to win, is `lib.mkForce`.
+
+---
+
+## Emergency mode: `Timed out waiting for device`
+
+```
+[ TIME ] Timed out waiting for device /dev/disk/by-partlabel/disk-main-root.
+[DEPEND] Dependency failed for /sysroot.
+[DEPEND] Dependency failed for Find NixOS closure.
+You are in emergency mode.
+```
+
+The install worked; the *boot* didn't. The initrd came up, waited 90 seconds for
+the root partition to appear, and never saw it — because it has no driver for
+the disk controller.
+
+`boot.initrd.availableKernelModules` in [configuration.nix](configuration.nix)
+is deliberately a bare-metal list — AHCI, NVMe, USB, SD — since the real target
+is a laptop board. A VM needs virtio drivers, which is easy to miss for one
+specific reason: **Proxmox's default "VirtIO SCSI" controller presents its disk
+as `/dev/sda`**, so nothing about the device name suggests virtio is involved.
+The installer ISO ships a generic kernel containing every module, so `lsblk`,
+disko and `nixos-install` all work perfectly — the gap only shows up when you
+boot the trimmed initrd you just built.
+
+Fixed by adding to the list:
+
+```nix
+"virtio_pci" "virtio_blk" "virtio_scsi" "virtio_net"
+```
+
+They cost nothing on the real board — nothing binds, so they never load.
+
+### The root account is locked
+
+```
+Cannot open access to console, the root account is locked.
+```
+
+Emergency mode asks for the root password, and if there isn't one the prompt is
+a dead end. `nixos-install` offers to set a root password at the end; take it.
+There's a commented `users.users.root.initialPassword` in
+[configuration.nix](configuration.nix) as an alternative.
+
+### Recovering without reinstalling from scratch
+
+The disk is fine and the store is already populated, so this is quick. Boot the
+ISO again, re-copy the flake, then **mount only** — no `destroy`, no `format`:
+
+```sh
+sudo nix --experimental-features "nix-command flakes" \
+  run github:nix-community/disko/latest -- \
+  --mode mount --flake .#tv
+
+git add -A
+sudo nixos-install --flake .#tv
+```
+
+That rebuilds the initrd with the new modules and rewrites the bootloader
+entries. Most of the closure is already on the disk, so it finishes in a
+fraction of the original time.
+
+Remember that your home directory on the ISO is a tmpfs and did not survive the
+reboot — the flake you edited is gone, so `scp` it over from the workstation
+again. Edit on the workstation, not on the ISO.
 
 ---
 

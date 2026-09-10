@@ -1,8 +1,10 @@
 {
   # Declarative partitioning. This replaces hand-rolled fdisk/mkfs and, more
-  # usefully here, generates the fileSystems entries by UUID for you — so the
-  # config doesn't care that the disk is in a USB enclosure now and in the
-  # board later.
+  # usefully here, generates the fileSystems entries for you — by partlabel,
+  # e.g. /dev/disk/by-partlabel/disk-main-root, built from the names below
+  # (disk "main" + partition "root"). Those labels live in the partition table
+  # itself, so the config doesn't care that the disk is in a USB enclosure now
+  # and in the board later.
   #
   # WARNING: applying this WIPES the named device. Get the id right.
   #   ls -l /dev/disk/by-id/

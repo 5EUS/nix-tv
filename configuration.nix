@@ -19,9 +19,23 @@
   boot.loader.efi.canTouchEfiVariables = false;
 
   boot.initrd.availableKernelModules = [
+    # Bare metal: SATA / NVMe / USB / SD.
     "ahci" "nvme" "sd_mod" "sr_mod"
     "xhci_pci" "ehci_pci" "usbhid" "usb_storage"
     "sdhci_pci" "rtsx_pci_sdmmc"
+
+    # Virtio, for the VM dry-run. Without these the initrd cannot see the
+    # disk at all and drops to emergency mode with "Timed out waiting for
+    # device /dev/disk/by-partlabel/disk-main-root".
+    #
+    # Note that Proxmox's default "VirtIO SCSI" controller presents its disk
+    # as /dev/sda, not /dev/vda — so the name gives no hint that a virtio
+    # driver is what's required. The installer ISO ships a generic kernel
+    # with every module, which is why partitioning and installing work fine
+    # right up until you boot the system you just built.
+    #
+    # Harmless on the real board: nothing binds and they're never loaded.
+    "virtio_pci" "virtio_blk" "virtio_scsi" "virtio_net"
   ];
 
   boot.kernelPackages = pkgs.linuxPackages_latest;
@@ -172,6 +186,13 @@
 
   time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
+
+  # If the initrd or a filesystem unit fails, systemd drops to emergency mode
+  # and asks for the root password. With no root password set, that prompt is
+  # a dead end: "Cannot open access to console, the root account is locked",
+  # and your only way in is to boot the installer ISO again. `nixos-install`
+  # prompts for a root password at the end — don't skip it, or uncomment this.
+  # users.users.root.initialPassword = "changeme";
 
   users.users.tv = {
     isNormalUser = true;
