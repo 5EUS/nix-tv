@@ -323,6 +323,39 @@ board, and boot.
 
 ---
 
+## `option ... is defined multiple times`
+
+```
+error: The option `programs.kdeconnect.package' is defined multiple times
+       while it's expected to be unique.
+       - In `.../configuration.nix': <derivation kdeconnect-kde-26.08.0>
+       - In `.../modules/services/desktop-managers/plasma6.nix': <derivation kdeconnect-kde-26.08.0>
+```
+
+Note that both definitions are *the same derivation*. Nix doesn't care — a
+non-`mkDefault` option can only be defined once, regardless of whether the
+values agree.
+
+The cause is a trap specific to this config. `programs.kdeconnect.package`
+defaults to the **Qt5** build, so setting it explicitly to
+`pkgs.kdePackages.kdeconnect-kde` looks obviously correct. But
+`services.desktopManager.plasma6.enable = true` — on here as the fallback
+session — pulls in `plasma6.nix`, which already redefines that option to the
+Qt6 package, and not as a default. Setting it yourself collides.
+
+Fix is to drop the `package` line and keep the enable:
+
+```nix
+programs.kdeconnect.enable = true;
+```
+
+Already applied in [configuration.nix](configuration.nix). Only put `package`
+back if you ever disable plasma6, at which point you'd land on the Qt5 build
+again. The general escape hatch, if you hit this on some other option where you
+genuinely need your value to win, is `lib.mkForce`.
+
+---
+
 ## When Bigscreen doesn't come up
 
 There is no `services.desktopManager.plasma6-bigscreen.enable` option, so the
