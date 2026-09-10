@@ -48,11 +48,13 @@ actual risk in this build lives — before you touch hardware.
   device name later: VirtIO Block gives `/dev/vda`, SATA/SCSI gives `/dev/sda`.
   Don't assume; you'll run `lsblk` before touching disko. The Plasma 6 closure
   plus a couple of generations will chew through 20 GB fast.
-- **CPU: host**, 4 cores. **RAM: 16 GB for the install**, then drop to 8 GB
-  afterwards. This is not about performance — the installer's Nix store is a
-  tmpfs sized at half of RAM, and 8 GB is not enough room to evaluate nixpkgs
-  and build a Plasma closure. See
-  [No space left on device](#no-space-left-on-device).
+- **CPU: host**, 4 cores. **RAM: as much as you can spare for the install** —
+  12 GB or more is comfortable, 14–16 GB is plenty — then drop to 8 GB
+  afterwards. This is not about performance: the installer's Nix store is a
+  tmpfs sized at half of RAM, so 4 GB gives you a 1.9 GB store and cannot even
+  evaluate nixpkgs. If you can't spare much, read
+  [How much RAM is actually enough](#how-much-ram-is-actually-enough) — swap and
+  a tmpfs remount substitute for a good deal of it.
 - **Disable memory ballooning**, or the VM may have less RAM than you set.
 - **Display: VirtIO-GPU.** The default `std` adapter works, but `kwin_wayland`
   falls back to llvmpipe and it's rough. If the session refuses to start at all,
@@ -243,12 +245,30 @@ df -h /nix/.rw-store
 free -h
 ```
 
+A VM that was supposed to have 8 GB, actually built with 4:
+
+```
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G  1.9G     0 100% /nix/.rw-store
+               total        used        free      shared  buff/cache   available
+Mem:           3.8Gi       2.8Gi       923Mi       2.0Gi       2.4Gi       1.0Gi
+Swap:             0B          0B          0B
+```
+
+`Mem: total` is the number to check first — it tells you what the VM *actually*
+got, which is not necessarily what you typed into Proxmox. 1.9G of store is
+exactly half of 3.8Gi, it is 100% full, and there is no swap to fall back on.
+Two nixpkgs source trees do not fit in that.
+
 Fixes, most effective first.
 
 **1. Give the VM more RAM.** The tmpfs is sized as a fraction of RAM, so this
-directly buys store space. 16 GB during install, back to 8 GB after. If Proxmox
-memory ballooning is on, turn it off — the guest can otherwise hold less than
-the number you configured.
+directly buys store space. If Proxmox memory ballooning is on, turn it off — the
+guest can otherwise hold less than the number you configured.
+
+You need less than you'd think, and **RAM is not the only lever** — see
+[How much RAM is actually enough](#how-much-ram-is-actually-enough) before you
+go shopping for a bigger host.
 
 **2. Don't make it fetch nixpkgs twice.** `nix run github:nix-community/disko/latest`
 resolves *disko's own* lock file, which pins its own nixpkgs — a second full
@@ -298,6 +318,49 @@ sudo swapon /mnt/swapfile
 
 Then `sudo swapoff /mnt/swapfile && sudo rm /mnt/swapfile` once the install
 finishes.
+
+### How much RAM is actually enough
+
+There are two distinct phases, and they fail for different reasons.
+
+**Evaluation** is the RAM-hungry one — Nix holds the whole module system in
+memory and writes fetched sources into the store. This is what dies at 4 GB. If
+you get an error naming a NixOS *option* or a derivation like
+`nixos-system-tv-…` rather than `No space left on device`, evaluation finished
+and you are past the hard part. That is the milestone to watch for; it means
+your current RAM is sufficient and the number does not need to go up.
+
+**Realising the closure** is the bulky one, but by then disko has mounted `/mnt`
+and enabled swap, so there is 60-odd GB of real disk in play. Size of RAM
+matters much less here than whether the store has somewhere to spill.
+
+So if 14–16 GB is your ceiling, that is very likely fine. If `ENOSPC` does come
+back during `nixos-install`, raise the *tmpfs limit* rather than the RAM:
+
+```sh
+swapon --show                                    # confirm disko enabled it
+sudo mount -o remount,size=24G /nix/.rw-store
+```
+
+The subtlety that catches people: **swap alone does not fix `ENOSPC`.** A tmpfs
+enforces a hard `size=` cap, defaulting to 50% of RAM, and that cap is applied
+whether or not swap exists. Swap only makes it *possible* to exceed RAM — you
+still have to raise the cap by hand. The ceiling is roughly RAM + swap, which is
+why [disko.nix](disko.nix) asks for a 16 GB swap partition: it is what makes a
+24 GB tmpfs viable on a 14 GB VM.
+
+Worth doing at the same time, so Nix's scratch files land on disk instead of
+competing for the same tmpfs:
+
+```sh
+sudo mkdir -p /mnt/tmp
+export TMPDIR=/mnt/tmp
+```
+
+Both the remount and `TMPDIR` are lost on reboot, which is fine — they only need
+to outlive the install.
+
+---
 
 ## The real thing
 

@@ -24,14 +24,19 @@
             mountOptions = [ "umask=0077" ];
           };
         };
-        # Not for the TV's sake — 8 GB of RAM running Bigscreen barely needs
-        # it. This exists so `nixos-install` has somewhere to spill: the
-        # installer ISO's Nix store is a tmpfs, and building the Plasma
-        # closure in RAM alone runs it out of space. disko swapon's this as
-        # soon as it mounts, i.e. before you run nixos-install.
+        # Not for the TV's sake — Bigscreen barely needs it. This exists so
+        # `nixos-install` has somewhere to spill: the installer ISO's Nix
+        # store is a tmpfs, and building the Plasma closure in RAM alone runs
+        # it out of space. disko swapon's this as soon as it mounts, i.e.
+        # before you run nixos-install.
+        #
+        # Sized generously on purpose. A tmpfs can hold at most RAM + swap, so
+        # on a RAM-starved install host this is what buys you headroom — see
+        # the remount trick in the README. Costs 16 GB of a 64 GB disk and is
+        # simply unused once the box is running; shrink it if that bothers you.
         swap = {
           priority = 2;
-          size = "8G";
+          size = "16G";
           content = {
             type = "swap";
             discardPolicy = "both";
