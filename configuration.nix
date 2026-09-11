@@ -1,5 +1,70 @@
 { config, lib, pkgs, ... }:
 
+let
+  ##########################################################################
+  # Web shortcuts
+  #
+  # Bigscreen has no shortcut UI of its own — it builds its app grid by
+  # scanning the standard XDG directories for .desktop files and reading the
+  # name and Exec line out of each one. So a "web app" here is just a desktop
+  # entry that launches Chrome pointed at one URL with no browser chrome.
+  #
+  # Exec is run through a generated shell script rather than written inline,
+  # because .desktop Exec quoting rules and shell quoting rules disagree about
+  # spaces, quotes and semicolons — which the YouTube user-agent string below
+  # would otherwise trip over.
+  ##########################################################################
+
+  mkWebApp =
+    { id
+    , name
+    , url
+    , icon ? "applications-multimedia"
+    , scale ? "1.5" # 10-foot viewing: the desktop web is unreadable at 1:1
+    , extraFlags ? [ ]
+    }:
+    let
+      launcher = pkgs.writeShellScript "webapp-${id}" ''
+        exec ${pkgs.google-chrome}/bin/google-chrome-stable \
+          --app=${lib.escapeShellArg url} \
+          --start-fullscreen \
+          --ozone-platform-hint=auto \
+          --force-device-scale-factor=${scale} \
+          --class=webapp-${id} \
+          ${lib.escapeShellArgs extraFlags} "$@"
+      '';
+    in
+    pkgs.makeDesktopItem {
+      name = "webapp-${id}";
+      desktopName = name;
+      exec = "${launcher}";
+      inherit icon;
+      categories = [ "AudioVideo" "Video" ];
+      startupWMClass = "webapp-${id}";
+    };
+
+  webApps = map mkWebApp [
+    { id = "netflix"; name = "Netflix"; url = "https://www.netflix.com/browse"; }
+    { id = "hulu"; name = "Hulu"; url = "https://www.hulu.com/hub/home"; }
+    { id = "disneyplus"; name = "Disney+"; url = "https://www.disneyplus.com/home"; }
+    { id = "primevideo"; name = "Prime Video"; url = "https://www.amazon.com/gp/video/storefront"; }
+    { id = "max"; name = "HBO Max"; url = "https://play.max.com"; }
+
+    # youtube.com/tv is the real remote-driven leanback interface — d-pad
+    # navigable, no mouse needed. It is gated on the user agent, so claim to
+    # be a Tizen TV or you get bounced to the desktop site.
+    {
+      id = "youtube";
+      name = "YouTube";
+      url = "https://www.youtube.com/tv";
+      scale = "1.0"; # the TV UI is already sized for a couch
+      extraFlags = [
+        "--user-agent=Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/6.0 TV Safari/537.36"
+      ];
+    }
+  ];
+in
+
 {
   ##########################################################################
   # Boot / firmware
@@ -166,14 +231,23 @@
   # Apps
   ##########################################################################
 
+  # Chrome rather than Chromium, deliberately. The streaming services all
+  # require Widevine DRM, and google-chrome ships it in the prebuilt binary.
+  # `chromium.override { enableWideVine = true; }` also works in principle,
+  # but an override means no binary cache hit, and Chromium from source is one
+  # of the heaviest builds in nixpkgs — hours on a box like this.
+  nixpkgs.config.allowUnfreePredicate =
+    pkg: builtins.elem (lib.getName pkg) [ "google-chrome" ];
+
   environment.systemPackages = with pkgs; [
     kdePackages.plasma-bigscreen
     mpv
     jellyfin-media-player
+    google-chrome
     firefox
     vim
     git
-  ];
+  ] ++ webApps;
 
   ##########################################################################
   # System
